@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h2 class="mb-4">Отчёт по анализу сна</h2>
+
+        <!-- Карточки с KPI -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3 col-sm-6">
+                <div class="card text-white bg-primary shadow h-100">
+                    <div class="card-header"><i class="bi bi-hourglass-split"></i> Длительность</div>
+                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
+                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_total_sleep / 60) }} ч</h5>
+                        <span>в среднем за ночь</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card text-white bg-success shadow h-100">
+                    <div class="card-header"><i class="bi bi-moon-stars-fill"></i> Глубокий сон</div>
+                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
+                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_deep_sleep / 60) }} ч</h5>
+                        <span>{{ "%.1f"|format(analysis.avg_deep_sleep / analysis.avg_total_sleep * 100) }}% от сна</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card text-white bg-info shadow h-100">
+                    <div class="card-header"><i class="bi bi-lightning-charge-fill"></i> REM-сон</div>
+                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
+                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_rem_sleep / 60) }} ч</h5>
+                        <span>{{ "%.1f"|format(analysis.avg_rem_sleep / analysis.avg_total_sleep * 100) }}% от сна</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card text-white bg-{% if analysis.avg_efficiency >= 85 %}success{% else %}warning{% endif %} shadow h-100">
+                    <div class="card-header"><i class="bi bi-bullseye"></i> Эффективность</div>
+                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
+                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_efficiency) }}%</h5>
+                        <span>от времени в постели</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Тренд и регулярность -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="card shadow">
+                    <div class="card-body">
+                        <h6 class="text-muted">Тренд качества сна</h6>
+                        <h5><span class="badge bg-{% if analysis.trend == 'улучшается' %}success{% elif analysis.trend == 'ухудшается' %}danger{% else %}secondary{% endif %} fs-5">{{ analysis.trend }}</span></h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card shadow">
+                    <div class="card-body">
+                        <h6 class="text-muted">Регулярность сна</h6>
+                        <h5><span class="badge bg-{% if analysis.sleep_regularity <= 30 %}success{% elif analysis.sleep_regularity <= 60 %}warning{% else %}danger{% endif %} fs-5">
+                            {% if analysis.sleep_regularity <= 30 %}Хорошая{% elif analysis.sleep_regularity <= 60 %}Средняя{% else %}Низкая{% endif %}
+                        </span></h5>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Графики -->
+        <div class="card shadow mb-4">
+            <div class="card-body">
+                {{ duration_phase_html | safe }}
+            </div>
+        </div>
+        <div class="card shadow mb-4">
+            <div class="card-body">
+                {{ efficiency_html | safe }}
+            </div>
+        </div>
+
+        <!-- Рекомендации в формате Accordion -->
+        <h4 class="mb-3">🎯 Рекомендации по улучшению сна</h4>
+        {% set levels = {"danger": "Важно!", "warning": "Обратите внимание", "success": "Хороший показатель", "info": "Совет"} %}
+        {% set colors = {"danger": "border-danger", "warning": "border-warning", "success": "border-success", "info": "border-info"} %}
+        {% set btn_colors = {"danger": "btn-outline-danger", "warning": "btn-outline-warning", "success": "btn-outline-success", "info": "btn-outline-info"} %}
+
+        {% for rec in analysis.recommendations %}
+            {% set level = rec.level %}
+            {% set color = colors[level] %}
+            {% set btn_color = btn_colors[level] %}
+            {% set title = levels[level] %}
+            {% set icon = {"danger": "⚠️", "warning": "❗️", "success": "✅", "info": "💡"}[level] %}
+            <div class="accordion" id="recAccordion{{ loop.index }}">
+                <div class="accordion-item {{ color }}">
+                    <h2 class="accordion-header" id="heading{{ loop.index }}">
+                        <button class="accordion-button collapsed {{ btn_color }}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ loop.index }}" aria-expanded="false" aria-controls="collapse{{ loop.index }}">
+                            <span class="me-2">{{ icon }}</span> {{ title }}
+                        </button>
+                    </h2>
+                    <div id="collapse{{ loop.index }}" class="accordion-collapse collapse" aria-labelledby="heading{{ loop.index }}" data-bs-parent="#recAccordion{{ loop.index }}">
+                        <div class="accordion-body">
+                            {{ rec.message }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+
+        <a href="/" class="btn btn-primary mt-4">⬅️ Загрузить другой файл</a>
+    </div>
+</div>
+{% endblock %}
