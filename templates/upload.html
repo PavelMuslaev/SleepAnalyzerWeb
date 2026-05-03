@@ -52,7 +52,7 @@
                                 <li><code>gender</code> (пол: M / F)</li>
                             </ul>
                         </div>
-                        <form method="post" enctype="multipart/form-data">
+                        <form method="post" enctype="multipart/form-data" onsubmit="showLoading()">
                             <input type="hidden" name="mode" value="file">
                             <input type="file" name="csvfile" accept=".csv" class="form-control form-control-lg mb-3" required>
                             <button type="submit" class="btn btn-primary btn-lg px-5">Анализировать</button>
@@ -66,7 +66,7 @@
                 <div class="card shadow border-0 rounded-4">
                     <div class="card-body p-4">
                         <h5 class="card-title mb-4"><i class="bi bi-pencil-square"></i> Ввод данных по дням</h5>
-                        <form method="post" id="manualForm">
+                        <form method="post" id="manualForm" onsubmit="showLoading()">
                             <input type="hidden" name="mode" value="manual">
 
                             <!-- Персональные данные (один раз) -->
@@ -86,7 +86,6 @@
                             </div>
 
                             <div id="days-container">
-                                <!-- Шаблон одного дня (клонируется) -->
                                 <template id="day-template">
                                     <div class="day-row border rounded p-3 mb-3">
                                         <div class="row g-3">
@@ -125,7 +124,6 @@
                                             </button>
                                             <button type="button" class="btn btn-sm btn-outline-danger remove-day">Удалить день</button>
                                         </div>
-                                        <!-- Скрываемый блок с дополнительными метриками дня -->
                                         <div class="day-extended mt-3" style="display: none;">
                                             <div class="row g-3">
                                                 <div class="col-md-3">
@@ -177,7 +175,27 @@
     </div>
 </div>
 
+<!-- Модальное окно "Идёт анализ..." -->
+<div class="modal fade" id="loadingModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content text-center p-4">
+            <div class="modal-body">
+                <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
+                    <span class="visually-hidden">Загрузка...</span>
+                </div>
+                <h5>Собираем данные...</h5>
+                <p class="text-muted">Идёт анализ сна. Это может занять несколько секунд.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
+    function showLoading() {
+        var modal = new bootstrap.Modal(document.getElementById('loadingModal'));
+        modal.show();
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         const container = document.getElementById('days-container');
         const template = document.getElementById('day-template');
@@ -187,21 +205,18 @@
             container.appendChild(clone);
         }
 
-        // Начальный день
+        // Первый день
         addDay();
 
         document.getElementById('add-day').addEventListener('click', addDay);
 
-        // Обработка кликов внутри контейнера дней
         container.addEventListener('click', function(e) {
-            // Удаление дня
             if (e.target.classList.contains('remove-day')) {
                 e.target.closest('.day-row').remove();
                 if (container.querySelectorAll('.day-row').length === 0) {
                     addDay();
                 }
             }
-            // Переключение дополнительных полей
             if (e.target.classList.contains('toggle-extended')) {
                 const dayRow = e.target.closest('.day-row');
                 const extended = dayRow.querySelector('.day-extended');
