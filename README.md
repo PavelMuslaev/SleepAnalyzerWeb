@@ -10,14 +10,18 @@
 5. Загрузите файл из папки `test_data/` или свой CSV, соответствующий формату.
 
 ## Формат CSV
-Файл должен иметь колонки (разделитель запятая):
+Обязательные колонки:
 - `date` (YYYY-MM-DD)
-- `sleep_start` (HH:MM)
-- `sleep_end` (HH:MM)
-- `deep_sleep_minutes`
-- `light_sleep_minutes`
-- `rem_minutes`
-- `awakenings` (целое число)
+- `sleep_start`, `sleep_end` (HH:MM)
+- `deep_sleep_minutes`, `light_sleep_minutes`, `rem_minutes` (float)
+- `awakenings` (int)
+
+Опциональные колонки (для расширенного анализа):
+- `heart_rate_avg`, `hr_variability_avg`, `respiratory_rate_avg`, `movement_index`, `sleep_latency_minutes`, `sleep_quality_rating` (float/int)
+- **`age`** (int) – возраст пользователя
+- **`gender`** (M/F) – пол пользователя
+
+Если указаны возраст и пол, приложение автоматически использует персонализированные нормы сна при расчёте Sleep Score и формировании рекомендаций.
 
 ## Структура проекта
 - `app.py` — точка входа веб-приложения

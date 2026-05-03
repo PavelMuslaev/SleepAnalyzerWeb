@@ -1,19 +1,215 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-8 col-lg-6">
-        <h2 class="mb-4">Загрузка данных сна</h2>
-        <p>Загрузите CSV-файл с данными сна. Ожидаемые колонки: <code>date, sleep_start, sleep_end, deep_sleep_minutes, light_sleep_minutes, rem_minutes, awakenings</code>.</p>
-        {% if error %}
-            <div class="alert alert-danger">{{ error }}</div>
-        {% endif %}
-        <form method="post" enctype="multipart/form-data" class="card p-4 shadow">
-            <div class="mb-3">
-                <label for="csvfile" class="form-label">Выберите файл .csv</label>
-                <input class="form-control" type="file" id="csvfile" name="csvfile" accept=".csv" required>
+    <div class="col-lg-8">
+        <div class="text-center mb-4">
+            <h2 class="fw-bold">SleepAnalyzer</h2>
+            <p class="text-muted">Загрузите CSV-файл из вашего трекера или введите данные вручную</p>
+        </div>
+
+        <ul class="nav nav-tabs mb-4 justify-content-center" id="uploadTab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="file-tab" data-bs-toggle="tab" data-bs-target="#file-panel"
+                        type="button" role="tab">
+                    <i class="bi bi-file-earmark-arrow-up"></i> Загрузить файл
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="manual-tab" data-bs-toggle="tab" data-bs-target="#manual-panel"
+                        type="button" role="tab">
+                    <i class="bi bi-keyboard"></i> Ввести вручную
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="uploadTabContent">
+            <!-- Панель загрузки файла -->
+            <div class="tab-pane fade show active" id="file-panel" role="tabpanel">
+                <div class="card shadow border-0 rounded-4">
+                    <div class="card-body p-5 text-center">
+                        <i class="bi bi-cloud-upload display-1 text-primary mb-3"></i>
+                        <h5>Выберите CSV-файл</h5>
+                        <div class="text-start mt-4 mb-4">
+                            <p><strong>Обязательные колонки:</strong></p>
+                            <ul class="list-unstyled">
+                                <li><code>date</code> (дата ГГГГ-ММ-ДД)</li>
+                                <li><code>sleep_start</code> (начало сна ЧЧ:ММ)</li>
+                                <li><code>sleep_end</code> (окончание сна ЧЧ:ММ)</li>
+                                <li><code>deep_sleep_minutes</code> (глубокий сон, минут)</li>
+                                <li><code>light_sleep_minutes</code> (лёгкий сон, минут)</li>
+                                <li><code>rem_minutes</code> (быстрый сон, минут)</li>
+                                <li><code>awakenings</code> (пробуждения, целое число)</li>
+                            </ul>
+                            <p><strong>Необязательные колонки:</strong></p>
+                            <ul class="list-unstyled">
+                                <li><code>heart_rate_avg</code> (средний пульс)</li>
+                                <li><code>hr_variability_avg</code> (вариабельность ритма, мс)</li>
+                                <li><code>respiratory_rate_avg</code> (частота дыхания, вдох/мин)</li>
+                                <li><code>movement_index</code> (движения, в час)</li>
+                                <li><code>sleep_latency_minutes</code> (время засыпания, минут)</li>
+                                <li><code>sleep_quality_rating</code> (субъективная оценка 1–5)</li>
+                                <li><code>age</code> (возраст)</li>
+                                <li><code>gender</code> (пол: M / F)</li>
+                            </ul>
+                        </div>
+                        <form method="post" enctype="multipart/form-data">
+                            <input type="hidden" name="mode" value="file">
+                            <input type="file" name="csvfile" accept=".csv" class="form-control form-control-lg mb-3" required>
+                            <button type="submit" class="btn btn-primary btn-lg px-5">Анализировать</button>
+                        </form>
+                    </div>
+                </div>
             </div>
-            <button type="submit" class="btn btn-primary">Загрузить и анализировать</button>
-        </form>
+
+            <!-- Панель ручного ввода -->
+            <div class="tab-pane fade" id="manual-panel" role="tabpanel">
+                <div class="card shadow border-0 rounded-4">
+                    <div class="card-body p-4">
+                        <h5 class="card-title mb-4"><i class="bi bi-pencil-square"></i> Ввод данных по дням</h5>
+                        <form method="post" id="manualForm">
+                            <input type="hidden" name="mode" value="manual">
+
+                            <!-- Персональные данные (один раз) -->
+                            <div class="row g-3 mb-4">
+                                <div class="col-md-3">
+                                    <label class="form-label">Возраст</label>
+                                    <input type="number" name="age" class="form-control" min="0" max="120">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Пол</label>
+                                    <select name="gender" class="form-control">
+                                        <option value="">—</option>
+                                        <option value="M">Мужской</option>
+                                        <option value="F">Женский</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div id="days-container">
+                                <!-- Шаблон одного дня (клонируется) -->
+                                <template id="day-template">
+                                    <div class="day-row border rounded p-3 mb-3">
+                                        <div class="row g-3">
+                                            <div class="col-md-6">
+                                                <label class="form-label">Дата <span class="text-danger">*</span></label>
+                                                <input type="date" name="date" class="form-control" required>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Начало сна <span class="text-danger">*</span></label>
+                                                <input type="time" name="sleep_start" class="form-control" required>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Конец сна <span class="text-danger">*</span></label>
+                                                <input type="time" name="sleep_end" class="form-control" required>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Глубокий (мин)</label>
+                                                <input type="number" name="deep_sleep_minutes" class="form-control" value="60" min="0" required>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Лёгкий (мин)</label>
+                                                <input type="number" name="light_sleep_minutes" class="form-control" value="180" min="0" required>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">REM (мин)</label>
+                                                <input type="number" name="rem_minutes" class="form-control" value="90" min="0" required>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Пробуждения</label>
+                                                <input type="number" name="awakenings" class="form-control" value="2" min="0" required>
+                                            </div>
+                                        </div>
+                                        <div class="mt-2">
+                                            <button type="button" class="btn btn-sm btn-outline-info toggle-extended">
+                                                Дополнительно для этого дня
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger remove-day">Удалить день</button>
+                                        </div>
+                                        <!-- Скрываемый блок с дополнительными метриками дня -->
+                                        <div class="day-extended mt-3" style="display: none;">
+                                            <div class="row g-3">
+                                                <div class="col-md-3">
+                                                    <label class="form-label">Пульс средний</label>
+                                                    <input type="number" name="heart_rate_avg" class="form-control" step="0.1">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">HRV средняя</label>
+                                                    <input type="number" name="hr_variability_avg" class="form-control" step="0.1">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">Дыхание (вдох/мин)</label>
+                                                    <input type="number" name="respiratory_rate_avg" class="form-control" step="0.1">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">Движения (в час)</label>
+                                                    <input type="number" name="movement_index" class="form-control" step="0.1">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">Латентность (мин)</label>
+                                                    <input type="number" name="sleep_latency_minutes" class="form-control">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label">Оценка качества (1-5)</label>
+                                                    <input type="number" name="sleep_quality_rating" class="form-control" min="1" max="5">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <div class="mb-3">
+                                <button type="button" id="add-day" class="btn btn-outline-primary">+ Добавить ещё день</button>
+                            </div>
+
+                            <div class="d-grid mt-4">
+                                <button type="submit" class="btn btn-success btn-lg">Анализировать</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-4">
+            <p class="text-muted"><i class="bi bi-info-circle"></i> Все параметры и нормы описаны в <a href="/legend">легенде показателей</a>.</p>
+        </div>
     </div>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const container = document.getElementById('days-container');
+        const template = document.getElementById('day-template');
+
+        function addDay() {
+            const clone = template.content.cloneNode(true);
+            container.appendChild(clone);
+        }
+
+        // Начальный день
+        addDay();
+
+        document.getElementById('add-day').addEventListener('click', addDay);
+
+        // Обработка кликов внутри контейнера дней
+        container.addEventListener('click', function(e) {
+            // Удаление дня
+            if (e.target.classList.contains('remove-day')) {
+                e.target.closest('.day-row').remove();
+                if (container.querySelectorAll('.day-row').length === 0) {
+                    addDay();
+                }
+            }
+            // Переключение дополнительных полей
+            if (e.target.classList.contains('toggle-extended')) {
+                const dayRow = e.target.closest('.day-row');
+                const extended = dayRow.querySelector('.day-extended');
+                if (extended) {
+                    extended.style.display = (extended.style.display === 'none') ? 'block' : 'none';
+                }
+            }
+        });
+    });
+</script>
 {% endblock %}

@@ -4,109 +4,342 @@
     <div class="col-12">
         <h2 class="mb-4">Отчёт по анализу сна</h2>
 
-        <!-- Карточки с KPI -->
+        {% if analysis.records|length <= 2 %}
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <strong>У вас меньше 3 записей.</strong> Для более точного анализа (тренды, графики изменений) загрузите данные за 3–7 дней.
+        </div>
+        {% endif %}
+
+        {% if analysis.user_age %}
         <div class="row g-3 mb-4">
-            <div class="col-md-3 col-sm-6">
-                <div class="card text-white bg-primary shadow h-100">
-                    <div class="card-header"><i class="bi bi-hourglass-split"></i> Длительность</div>
-                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
-                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_total_sleep / 60) }} ч</h5>
-                        <span>в среднем за ночь</span>
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <i class="bi bi-person-badge"></i>
+                    Профиль: {{ analysis.user_age }} лет,
+                    {% if analysis.user_gender == 'M' %}Мужчина{% else %}Женщина{% endif %}.
+                    Нормы сна подобраны с учетом вашей возрастной группы.
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Sleep Score, Долг сна, Субъективная оценка -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card bg-light shadow">
+                    <div class="card-body text-center">
+                        <h5 class="card-title text-muted">
+                            Оценка сна
+                            <a href="/legend#sleep_score" class="text-muted ms-1" data-bs-toggle="tooltip" title="Как считается Sleep Score?">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h5>
+                        <div class="display-3 fw-bold text-primary">{{ analysis.sleep_score or '—' }}</div>
+                        <span class="text-secondary">из 100</span>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3 col-sm-6">
-                <div class="card text-white bg-success shadow h-100">
-                    <div class="card-header"><i class="bi bi-moon-stars-fill"></i> Глубокий сон</div>
-                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
-                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_deep_sleep / 60) }} ч</h5>
-                        <span>{{ "%.1f"|format(analysis.avg_deep_sleep / analysis.avg_total_sleep * 100) }}% от сна</span>
+            <div class="col-md-4">
+                <div class="card bg-light shadow">
+                    <div class="card-body text-center">
+                        <h5 class="card-title text-muted">
+                            Долг сна
+                            <a href="/legend#sleep_debt" class="text-muted ms-1" data-bs-toggle="tooltip" title="Что такое долг сна?">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h5>
+                        <div class="display-3 fw-bold text-danger">{{ "%.1f"|format((analysis.sleep_debt_minutes or 0) / 60) }} ч</div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3 col-sm-6">
-                <div class="card text-white bg-info shadow h-100">
-                    <div class="card-header"><i class="bi bi-lightning-charge-fill"></i> REM-сон</div>
-                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
-                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_rem_sleep / 60) }} ч</h5>
-                        <span>{{ "%.1f"|format(analysis.avg_rem_sleep / analysis.avg_total_sleep * 100) }}% от сна</span>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 col-sm-6">
-                <div class="card text-white bg-{% if analysis.avg_efficiency >= 85 %}success{% else %}warning{% endif %} shadow h-100">
-                    <div class="card-header"><i class="bi bi-bullseye"></i> Эффективность</div>
-                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
-                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_efficiency) }}%</h5>
-                        <span>от времени в постели</span>
+            <div class="col-md-4">
+                <div class="card bg-light shadow">
+                    <div class="card-body text-center">
+                        <h5 class="card-title text-muted">
+                            Субъективная оценка
+                            <a href="/legend#subjective_rating" class="text-muted ms-1" data-bs-toggle="tooltip" title="Ваша личная оценка сна">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h5>
+                        {% if analysis.avg_subjective_rating %}
+                        <div class="display-3 fw-bold text-success">{{ "%.1f"|format(analysis.avg_subjective_rating) }}</div>
+                        <span>из 5</span>
+                        {% else %}
+                        <div class="display-3 fw-bold text-muted">—</div>
+                        <span>нет данных</span>
+                        {% endif %}
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Тренд и регулярность -->
+        <!-- Основные KPI карточки -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3 col-sm-6">
+                <div class="card text-white bg-primary shadow h-100">
+                    <div class="card-header">
+                        <i class="bi bi-hourglass-split"></i> Длительность
+                        <a href="/legend#total_sleep" class="text-white ms-1" data-bs-toggle="tooltip" title="Общая продолжительность сна">
+                            <i class="bi bi-question-circle"></i>
+                        </a>
+                    </div>
+                    <div class="card-body text-center">
+                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_total_sleep / 60) }} ч</h5>
+                        <span>в среднем</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card text-white bg-success shadow h-100">
+                    <div class="card-header">
+                        <i class="bi bi-moon-stars-fill"></i> Глубокий сон
+                        <a href="/legend#deep_sleep" class="text-white ms-1" data-bs-toggle="tooltip" title="Фаза глубокого сна (N3)">
+                            <i class="bi bi-question-circle"></i>
+                        </a>
+                    </div>
+                    <div class="card-body text-center">
+                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_deep_sleep / 60) }} ч</h5>
+                        <span>{{ "%.1f"|format(analysis.avg_deep_sleep / analysis.avg_total_sleep * 100) if analysis.avg_total_sleep else 0 }}%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card text-white bg-info shadow h-100">
+                    <div class="card-header">
+                        <i class="bi bi-lightning-charge-fill"></i> REM-сон
+                        <a href="/legend#rem_sleep" class="text-white ms-1" data-bs-toggle="tooltip" title="Фаза быстрого сна (REM)">
+                            <i class="bi bi-question-circle"></i>
+                        </a>
+                    </div>
+                    <div class="card-body text-center">
+                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_rem_sleep / 60) }} ч</h5>
+                        <span>{{ "%.1f"|format(analysis.avg_rem_sleep / analysis.avg_total_sleep * 100) if analysis.avg_total_sleep else 0 }}%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="card text-white bg-{% if analysis.avg_efficiency >= 85 %}success{% else %}warning{% endif %} shadow h-100">
+                    <div class="card-header">
+                        <i class="bi bi-bullseye"></i> Эффективность
+                        <a href="/legend#efficiency" class="text-white ms-1" data-bs-toggle="tooltip" title="Эффективность сна (Sleep Efficiency)">
+                            <i class="bi bi-question-circle"></i>
+                        </a>
+                    </div>
+                    <div class="card-body text-center">
+                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_efficiency) }}%</h5>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Дополнительные метрики: латентность, WASO, фрагментация -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card shadow">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            Средняя латентность
+                            <a href="/legend#latency" class="text-muted ms-1" data-bs-toggle="tooltip" title="Время до засыпания">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h6>
+                        <h5>{{ "%.0f"|format(analysis.avg_latency) if analysis.avg_latency else '—' }} мин</h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card shadow">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            WASO (бодрствование)
+                            <a href="/legend#waso" class="text-muted ms-1" data-bs-toggle="tooltip" title="Время бодрствования после засыпания">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h6>
+                        <h5>{{ "%.0f"|format(analysis.avg_waso) if analysis.avg_waso else '—' }} мин</h5>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card shadow">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            Фрагментация сна
+                            <a href="/legend#fragmentation" class="text-muted ms-1" data-bs-toggle="tooltip" title="Количество пробуждений в час">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h6>
+                        <h5>{{ "%.1f"|format(analysis.avg_fragmentation) if analysis.avg_fragmentation else '—' }} проб/ч</h5>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Регулярность и консистентность -->
         <div class="row g-3 mb-4">
             <div class="col-md-6">
                 <div class="card shadow">
                     <div class="card-body">
-                        <h6 class="text-muted">Тренд качества сна</h6>
-                        <h5><span class="badge bg-{% if analysis.trend == 'улучшается' %}success{% elif analysis.trend == 'ухудшается' %}danger{% else %}secondary{% endif %} fs-5">{{ analysis.trend }}</span></h5>
+                        <h6 class="text-muted">
+                            Регулярность сна (длительность)
+                            <a href="/legend#regularity" class="text-muted ms-1" data-bs-toggle="tooltip" title="Стабильность продолжительности сна">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h6>
+                        <h5><span class="badge bg-{% if analysis.sleep_regularity <= 30 %}success{% elif analysis.sleep_regularity <= 60 %}warning{% else %}danger{% endif %} fs-5">
+                            {% if analysis.sleep_regularity <= 30 %}Высокая{% elif analysis.sleep_regularity <= 60 %}Средняя{% else %}Низкая{% endif %}
+                        </span></h5>
                     </div>
                 </div>
             </div>
             <div class="col-md-6">
                 <div class="card shadow">
                     <div class="card-body">
-                        <h6 class="text-muted">Регулярность сна</h6>
-                        <h5><span class="badge bg-{% if analysis.sleep_regularity <= 30 %}success{% elif analysis.sleep_regularity <= 60 %}warning{% else %}danger{% endif %} fs-5">
-                            {% if analysis.sleep_regularity <= 30 %}Хорошая{% elif analysis.sleep_regularity <= 60 %}Средняя{% else %}Низкая{% endif %}
+                        <h6 class="text-muted">
+                            Консистентность отхода ко сну
+                            <a href="/legend#bedtime_consistency" class="text-muted ms-1" data-bs-toggle="tooltip" title="Разброс времени начала сна">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h6>
+                        <h5><span class="badge bg-{% if analysis.bedtime_consistency <= 30 %}success{% elif analysis.bedtime_consistency <= 60 %}warning{% else %}danger{% endif %} fs-5">
+                            {% if analysis.bedtime_consistency <= 30 %}Стабильно{% elif analysis.bedtime_consistency <= 60 %}Умеренно{% else %}Нестабильно{% endif %}
                         </span></h5>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Графики -->
-        <div class="card shadow mb-4">
-            <div class="card-body">
-                {{ duration_phase_html | safe }}
+        <!-- Физиология (если доступна) -->
+        {% if analysis.avg_heart_rate or analysis.avg_hrv or analysis.avg_respiratory_rate or analysis.avg_movement %}
+        <div class="row g-3 mb-4">
+            <div class="col-12"><h5>Физиологические показатели</h5></div>
+            {% if analysis.avg_heart_rate %}
+            <div class="col-md-3 col-sm-6">
+                <div class="card border-danger shadow">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            Пульс
+                            <a href="/legend#heart_rate" class="text-muted ms-1" data-bs-toggle="tooltip" title="Средний пульс во сне">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h6>
+                        <h5>{{ "%.0f"|format(analysis.avg_heart_rate) }} <small>уд/мин</small></h5>
+                    </div>
+                </div>
             </div>
+            {% endif %}
+            {% if analysis.avg_hrv %}
+            <div class="col-md-3 col-sm-6">
+                <div class="card border-success shadow">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            HRV
+                            <a href="/legend#hrv" class="text-muted ms-1" data-bs-toggle="tooltip" title="Вариабельность сердечного ритма">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h6>
+                        <h5>{{ "%.0f"|format(analysis.avg_hrv) }} <small>мс</small></h5>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% if analysis.avg_respiratory_rate %}
+            <div class="col-md-3 col-sm-6">
+                <div class="card border-info shadow">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            Дыхание
+                            <a href="/legend#respiratory_rate" class="text-muted ms-1" data-bs-toggle="tooltip" title="Средняя частота дыхания">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h6>
+                        <h5>{{ "%.1f"|format(analysis.avg_respiratory_rate) }} <small>вд/мин</small></h5>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% if analysis.avg_movement %}
+            <div class="col-md-3 col-sm-6">
+                <div class="card border-warning shadow">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted">
+                            Движения
+                            <a href="/legend#movement" class="text-muted ms-1" data-bs-toggle="tooltip" title="Двигательная активность во сне">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h6>
+                        <h5>{{ "%.1f"|format(analysis.avg_movement) }} <small>движ/ч</small></h5>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </div>
-        <div class="card shadow mb-4">
-            <div class="card-body">
-                {{ efficiency_html | safe }}
+        {% endif %}
+
+        <!-- Тренд -->
+        <div class="row g-3 mb-4">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-body">
+                        <h6 class="text-muted">
+                            Тренд качества сна
+                            <a href="/legend#trend" class="text-muted ms-1" data-bs-toggle="tooltip" title="Направление изменения эффективности сна">
+                                <i class="bi bi-question-circle"></i>
+                            </a>
+                        </h6>
+                        <h5><span class="badge bg-{% if analysis.trend == 'улучшается' %}success{% elif analysis.trend == 'ухудшается' %}danger{% else %}secondary{% endif %} fs-5">{{ analysis.trend }}</span></h5>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Рекомендации в формате Accordion -->
-        <h4 class="mb-3">🎯 Рекомендации по улучшению сна</h4>
+        <!-- Графики -->
+        <div class="card shadow mb-4"><div class="card-body">{{ duration_phase_html | safe }}</div></div>
+        <div class="card shadow mb-4"><div class="card-body">{{ efficiency_html | safe }}</div></div>
+        {% if physio_plots %}
+            {% for name, html in physio_plots %}
+                <div class="card shadow mb-4"><div class="card-body">{{ html | safe }}</div></div>
+            {% endfor %}
+        {% endif %}
+
+        <!-- Рекомендации аккордеон -->
+        <h4 class="mb-3">🎯 Рекомендации</h4>
         {% set levels = {"danger": "Важно!", "warning": "Обратите внимание", "success": "Хороший показатель", "info": "Совет"} %}
         {% set colors = {"danger": "border-danger", "warning": "border-warning", "success": "border-success", "info": "border-info"} %}
         {% set btn_colors = {"danger": "btn-outline-danger", "warning": "btn-outline-warning", "success": "btn-outline-success", "info": "btn-outline-info"} %}
-
+        {% set icon = {"danger": "⚠️", "warning": "❗️", "success": "✅", "info": "💡"} %}
         {% for rec in analysis.recommendations %}
             {% set level = rec.level %}
-            {% set color = colors[level] %}
-            {% set btn_color = btn_colors[level] %}
-            {% set title = levels[level] %}
-            {% set icon = {"danger": "⚠️", "warning": "❗️", "success": "✅", "info": "💡"}[level] %}
             <div class="accordion" id="recAccordion{{ loop.index }}">
-                <div class="accordion-item {{ color }}">
+                <div class="accordion-item {{ colors[level] }}">
                     <h2 class="accordion-header" id="heading{{ loop.index }}">
-                        <button class="accordion-button collapsed {{ btn_color }}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ loop.index }}" aria-expanded="false" aria-controls="collapse{{ loop.index }}">
-                            <span class="me-2">{{ icon }}</span> {{ title }}
+                        <button class="accordion-button collapsed {{ btn_colors[level] }}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ loop.index }}">
+                            <span class="me-2">{{ icon[level] }}</span> {{ levels[level] }}
                         </button>
                     </h2>
                     <div id="collapse{{ loop.index }}" class="accordion-collapse collapse" aria-labelledby="heading{{ loop.index }}" data-bs-parent="#recAccordion{{ loop.index }}">
-                        <div class="accordion-body">
-                            {{ rec.message }}
-                        </div>
+                        <div class="accordion-body">{{ rec.message }}</div>
                     </div>
                 </div>
             </div>
         {% endfor %}
 
-        <a href="/" class="btn btn-primary mt-4">⬅️ Загрузить другой файл</a>
+        <div style="display: flex; align-items: center; justify-content: center; height: 120px; padding: 10px;">
+            <a href="/" class="btn btn-primary mt-4">⬅️ Загрузить другой файл</a>
+
+            <a style="margin-left: 12px;" href="/download_report" class="btn btn-outline-primary mt-4">
+                <i class="bi bi-download"></i> Скачать отчёт (DOCX)
+            </a>
+        </div>
     </div>
 </div>
+
+<script>
+    // Активация всплывающих подсказок Bootstrap
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+    var tooltipList = tooltipTriggerList.map(function (el) {
+        return new bootstrap.Tooltip(el)
+    })
+</script>
 {% endblock %}
