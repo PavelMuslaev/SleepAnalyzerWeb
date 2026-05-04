@@ -1,30 +1,199 @@
 # domain/services.py
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Optional, Tuple
 from domain.models import SleepRecord, AnalysisResult
 
 
 class SleepAnalysisService:
+    """Сервис анализа данных сна с персональными нормами."""
+
+    # ------------------------------------------------------------------
+    # Возрастные группы и нормы
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _get_age_group(age: int) -> str:
+        if age < 18:
+            return "teen"
+        elif age < 30:
+            return "young_adult"
+        elif age < 45:
+            return "adult"
+        elif age < 65:
+            return "middle_age"
+        else:
+            return "older_adult"
+
+    def _get_sleep_norms(
+        self, age: Optional[int], gender: Optional[str]
+    ) -> Dict[str, Tuple[float, float]]:
+        """
+        Возвращает персональные нормы сна в виде словаря с кортежами (min, max).
+        Если возраст не указан, возвращаются стандартные нормы для взрослого 18-45 лет.
+        """
+        # Базовые нормы (взрослые 18–45 лет)
+        norms = {
+            "total_sleep_hours": (7.0, 9.0),
+            "deep_sleep_pct": (15.0, 25.0),  # % от общей продолжительности сна
+            "rem_sleep_pct": (20.0, 25.0),
+            "efficiency": (85.0, 100.0),
+            "latency_min": (10.0, 20.0),
+            "waso_min": (0.0, 30.0),
+            "fragmentation": (0.0, 1.5),  # пробуждений в час
+        }
+
+        if age is None:
+            return norms
+
+        age_group = self._get_age_group(age)
+
+        # Корректировка по возрасту (источники: NSF, AASM, метаанализы 2020-2024)
+        if age_group == "teen":
+            norms["total_sleep_hours"] = (8.0, 10.0)
+            norms["deep_sleep_pct"] = (20.0, 30.0)
+            norms["rem_sleep_pct"] = (20.0, 25.0)
+        elif age_group == "young_adult":
+            pass
+        elif age_group == "adult":
+            norms["deep_sleep_pct"] = (10.0, 20.0)
+            norms["waso_min"] = (0.0, 40.0)
+        elif age_group == "middle_age":
+            norms["deep_sleep_pct"] = (7.0, 20.0)
+            norms["efficiency"] = (80.0, 100.0)
+            norms["waso_min"] = (0.0, 45.0)
+        elif age_group == "older_adult":
+            norms["total_sleep_hours"] = (6.0, 8.0)
+            norms["deep_sleep_pct"] = (5.0, 15.0)
+            norms["efficiency"] = (75.0, 100.0)
+            norms["waso_min"] = (0.0, 60.0)
+
+        # Небольшие поправки по полу
+        if gender == "F":
+            deep_min, deep_max = norms["deep_sleep_pct"]
+            norms["deep_sleep_pct"] = (deep_min + 2, min(deep_max + 5, 35.0))
+        elif gender == "M":
+            pass
+
+        return norms
+
+    # ------------------------------------------------------------------
+    # Основной метод анализа
+    # ------------------------------------------------------------------
     def analyze(self, records: List[SleepRecord]) -> AnalysisResult:
         if not records:
             raise ValueError("No sleep records provided")
 
         sorted_records = sorted(records, key=lambda r: r.date)
 
-        # Вычисляем средние
-        avg_total = np.mean([r.total_sleep_minutes for r in sorted_records])
-        avg_deep = np.mean([r.deep_sleep_minutes for r in sorted_records])
-        avg_rem = np.mean([r.rem_minutes for r in sorted_records])
-        avg_eff = np.mean([r.sleep_efficiency for r in sorted_records])
+        # 1. Базовые средние
+        avg_total = float(np.mean([r.total_sleep_minutes for r in sorted_records]))
+        avg_time_in_bed = float(
+            np.mean([r.time_in_bed_minutes for r in sorted_records])
+        )
+        avg_efficiency = float(np.mean([r.sleep_efficiency for r in sorted_records]))
+        avg_deep = float(np.mean([r.deep_sleep_minutes for r in sorted_records]))
+        avg_light = float(np.mean([r.light_sleep_minutes for r in sorted_records]))
+        avg_rem = float(np.mean([r.rem_minutes for r in sorted_records]))
 
-        # Новая метрика: регулярность сна (стандартное отклонение от средней продолжительности)
+        # 2. Латентность, WASO, фрагментация
+        latencies = [
+            r.sleep_latency_minutes
+            for r in sorted_records
+            if r.sleep_latency_minutes is not None
+        ]
+        avg_latency = float(np.mean(latencies)) if latencies else None
+
+        waso_vals = []
+        for r in sorted_records:
+            if r.sleep_latency_minutes is not None:
+                waso_vals.append(
+                    r.time_in_bed_minutes
+                    - r.total_sleep_minutes
+                    - r.sleep_latency_minutes
+                )
+            else:
+                waso_vals.append(r.time_in_bed_minutes - r.total_sleep_minutes)
+        avg_waso = float(np.mean(waso_vals)) if waso_vals else None
+
+        frags = [r.sleep_fragmentation for r in sorted_records]
+        avg_fragmentation = float(np.mean(frags)) if frags else None
+
+        # 3. Регулярность
         durations = [r.total_sleep_minutes for r in sorted_records]
-        if len(durations) >= 2:
-            sleep_regularity = np.std(durations)
-        else:
-            sleep_regularity = 0.0
+        sleep_regularity = float(np.std(durations)) if len(durations) >= 2 else 0.0
 
-        # Простой тренд по эффективности за последние 7 дней (или все)
+        def bedtime_minutes_from_midnight(r: SleepRecord) -> float:
+            minutes = r.sleep_start.hour * 60 + r.sleep_start.minute
+            if minutes > 12 * 60:
+                minutes -= 24 * 60
+            return minutes
+
+        bedtimes = [bedtime_minutes_from_midnight(r) for r in sorted_records]
+        bedtime_consistency = float(np.std(bedtimes)) if len(bedtimes) >= 2 else 0.0
+
+        # 4. Физиологические показатели (если есть)
+        hrs = [r.heart_rate_avg for r in sorted_records if r.heart_rate_avg is not None]
+        hrv = [
+            r.hr_variability_avg
+            for r in sorted_records
+            if r.hr_variability_avg is not None
+        ]
+        resp = [
+            r.respiratory_rate_avg
+            for r in sorted_records
+            if r.respiratory_rate_avg is not None
+        ]
+        mov = [r.movement_index for r in sorted_records if r.movement_index is not None]
+        subj = [
+            r.sleep_quality_rating
+            for r in sorted_records
+            if r.sleep_quality_rating is not None
+        ]
+
+        avg_hr = float(np.mean(hrs)) if hrs else None
+        avg_hrv = float(np.mean(hrv)) if hrv else None
+        avg_resp = float(np.mean(resp)) if resp else None
+        avg_mov = float(np.mean(mov)) if mov else None
+        avg_subj = float(np.mean(subj)) if subj else None
+
+        # 5. Персональные данные (из первой записи, где есть возраст)
+        user_age = None
+        user_gender = None
+        for r in sorted_records:
+            if r.age is not None:
+                user_age = r.age
+                user_gender = r.gender
+                break
+        if user_age is not None and user_gender is None:
+            user_gender = None
+
+        # Получаем персональные нормы
+        norms = (
+            self._get_sleep_norms(user_age, user_gender)
+            if user_age is not None
+            else self._get_sleep_norms(None, None)
+        )
+
+        # 6. Sleep Score и компоненты
+        score, components = self._compute_sleep_score(
+            avg_total,
+            avg_efficiency,
+            avg_deep,
+            avg_rem,
+            avg_fragmentation,
+            avg_latency,
+            avg_waso,
+            bedtime_consistency,
+            norms,
+        )
+
+        # 7. Долг сна
+        target_hours = (
+            norms["total_sleep_hours"][0] + norms["total_sleep_hours"][1]
+        ) / 2.0
+        target_minutes = target_hours * 60
+        sleep_debt = max(0.0, target_minutes - avg_total)
+
+        # 8. Тренд эффективности
         efficiencies = [r.sleep_efficiency for r in sorted_records[-7:]]
         if len(efficiencies) >= 2:
             x = np.arange(len(efficiencies))
@@ -38,115 +207,393 @@ class SleepAnalysisService:
         else:
             trend = "недостаточно данных"
 
+        # 9. Статусы для светофоров
+        kpi_statuses = {}
+        total_hours = avg_total / 60.0
+        min_h, max_h = norms["total_sleep_hours"]
+        if min_h <= total_hours <= max_h:
+            kpi_statuses["total_sleep"] = "good"
+        elif total_hours < min_h - 1 or total_hours > max_h + 1:
+            kpi_statuses["total_sleep"] = "danger"
+        else:
+            kpi_statuses["total_sleep"] = "warning"
+
+        eff_min, _ = norms["efficiency"]
+        if avg_efficiency >= eff_min:
+            kpi_statuses["efficiency"] = "good"
+        elif avg_efficiency >= eff_min - 10:
+            kpi_statuses["efficiency"] = "warning"
+        else:
+            kpi_statuses["efficiency"] = "danger"
+
+        deep_pct = (avg_deep / avg_total * 100) if avg_total > 0 else 0.0
+        deep_min, deep_max = norms["deep_sleep_pct"]
+        if deep_pct >= deep_max:
+            kpi_statuses["deep_sleep"] = "good"
+        elif deep_pct >= deep_min:
+            kpi_statuses["deep_sleep"] = "warning"
+        else:
+            kpi_statuses["deep_sleep"] = "danger"
+
+        rem_pct = (avg_rem / avg_total * 100) if avg_total > 0 else 0.0
+        rem_min, rem_max = norms["rem_sleep_pct"]
+        if rem_pct >= rem_max:
+            kpi_statuses["rem_sleep"] = "good"
+        elif rem_pct >= rem_min:
+            kpi_statuses["rem_sleep"] = "warning"
+        else:
+            kpi_statuses["rem_sleep"] = "danger"
+
+        # 10. Рекомендации с учётом профиля
         recommendations = self._generate_recommendations(
-            avg_total, avg_deep, avg_rem, avg_eff, sleep_regularity, trend
+            avg_total,
+            avg_efficiency,
+            avg_deep,
+            avg_rem,
+            sleep_regularity,
+            avg_latency,
+            avg_waso,
+            avg_fragmentation,
+            avg_hrv,
+            avg_mov,
+            avg_subj,
+            trend,
+            user_age,
+            user_gender,
+            norms,
         )
 
         return AnalysisResult(
             records=sorted_records,
             avg_total_sleep=avg_total,
+            avg_time_in_bed=avg_time_in_bed,
+            avg_efficiency=avg_efficiency,
+            avg_latency=avg_latency,
+            avg_waso=avg_waso,
+            avg_fragmentation=avg_fragmentation,
             avg_deep_sleep=avg_deep,
+            avg_light_sleep=avg_light,
             avg_rem_sleep=avg_rem,
-            avg_efficiency=avg_eff,
             sleep_regularity=sleep_regularity,
+            bedtime_consistency=bedtime_consistency,
+            avg_heart_rate=avg_hr,
+            avg_hrv=avg_hrv,
+            avg_respiratory_rate=avg_resp,
+            avg_movement=avg_mov,
+            avg_subjective_rating=avg_subj,
+            sleep_score=score,
+            sleep_debt_minutes=sleep_debt,
             trend=trend,
-            recommendations=recommendations
+            recommendations=recommendations,
+            user_age=user_age,
+            user_gender=user_gender,
+            kpi_statuses=kpi_statuses,
+            score_components=components,
         )
 
-    def _generate_recommendations(self, avg_total: float, avg_deep: float, avg_rem: float, efficiency: float,
-                                  regularity: float, trend: str) -> List[Dict[str, str]]:
-        """Generate evidence-based recommendations with levels ('danger', 'warning', 'success')."""
+    # ------------------------------------------------------------------
+    # Расчёт Sleep Score (0–100) с персонализированными нормами
+    # ------------------------------------------------------------------
+    def _compute_sleep_score(
+        self,
+        total_min: float,
+        efficiency: float,
+        deep_min: float,
+        rem_min: float,
+        fragmentation: Optional[float],
+        latency: Optional[float],
+        waso: Optional[float],
+        bedtime_std: float,
+        norms: Dict[str, Tuple[float, float]],
+    ) -> Tuple[int, Dict]:
+        components = {
+            "duration": {"value": 0, "max": 20},
+            "efficiency": {"value": 0, "max": 20},
+            "deep": {"value": 0, "max": 15},
+            "rem": {"value": 0, "max": 15},
+            "stability": {"value": 0, "max": 20},
+        }
+        total_hours = total_min / 60.0
+        min_h, max_h = norms["total_sleep_hours"]
+        if min_h <= total_hours <= max_h:
+            dur_score = 20
+        else:
+            deviation = min(abs(total_hours - min_h), abs(total_hours - max_h))
+            dur_score = max(0, 20 - deviation * 5)
+        components["duration"]["value"] = round(dur_score, 1)
+
+        eff_min, _ = norms["efficiency"]
+        eff_score = min(20, (efficiency / eff_min * 20)) if efficiency < eff_min else 20
+        components["efficiency"]["value"] = round(eff_score, 1)
+
+        deep_pct = (deep_min / total_min * 100) if total_min > 0 else 0.0
+        dmin, dmax = norms["deep_sleep_pct"]
+        if deep_pct >= dmax:
+            deep_score = 15
+        elif deep_pct <= dmin:
+            deep_score = max(0, deep_pct / dmin * 10)
+        else:
+            deep_score = 10 + 5 * (deep_pct - dmin) / (dmax - dmin)
+        components["deep"]["value"] = round(deep_score, 1)
+
+        rem_pct = (rem_min / total_min * 100) if total_min > 0 else 0.0
+        rmin, rmax = norms["rem_sleep_pct"]
+        if rem_pct >= rmax:
+            rem_score = 15
+        elif rem_pct <= rmin:
+            rem_score = max(0, rem_pct / rmin * 10)
+        else:
+            rem_score = 10 + 5 * (rem_pct - rmin) / (rmax - rmin)
+        components["rem"]["value"] = round(rem_score, 1)
+
+        # Стабильность
+        frag_min, frag_max = norms.get("fragmentation", (0.0, 1.5))
+        if fragmentation is not None:
+            if fragmentation <= frag_min:
+                frag_score = 10
+            elif fragmentation >= frag_max:
+                frag_score = 0
+            else:
+                frag_score = (
+                    10 - (fragmentation - frag_min) / (frag_max - frag_min) * 10
+                )
+        else:
+            frag_score = 10
+        if bedtime_std <= 15:
+            bedtime_score = 10
+        elif bedtime_std <= 30:
+            bedtime_score = 8
+        elif bedtime_std <= 60:
+            bedtime_score = 5
+        else:
+            bedtime_score = max(0, 5 - (bedtime_std - 60) / 10)
+        stability = frag_score + bedtime_score
+        components["stability"]["value"] = round(stability, 1)
+
+        total_score = dur_score + eff_score + deep_score + rem_score + stability
+        # Штрафы
+        lat_min, lat_max = norms["latency_min"]
+        penalty = 0
+        if latency is not None and latency > lat_max:
+            penalty += min(5, (latency - lat_max) / 10)
+        waso_min, waso_max = norms["waso_min"]
+        if waso is not None and waso > waso_max:
+            penalty += min(5, (waso - waso_max) / 10)
+        total_score -= penalty
+        total_score = max(0, min(100, int(round(total_score))))
+        return total_score, components
+
+    # ------------------------------------------------------------------
+    # Генерация рекомендаций с учётом профиля и норм
+    # ------------------------------------------------------------------
+    def _generate_recommendations(
+        self,
+        avg_total: float,
+        avg_eff: float,
+        avg_deep: float,
+        avg_rem: float,
+        regularity: float,
+        latency: Optional[float],
+        waso: Optional[float],
+        frag: Optional[float],
+        hrv: Optional[float],
+        mov: Optional[float],
+        subj: Optional[float],
+        trend: str,
+        age: Optional[int],
+        gender: Optional[str],
+        norms: Dict[str, Tuple[float, float]],
+    ) -> List[Dict[str, str]]:
         recs = []
+        total_hours = avg_total / 60.0
 
-        # 1. Анализ продолжительности сна (National Sleep Foundation: 7-9h)
-        total_hours = avg_total / 60
-        if total_hours < 7:
-            recs.append({
-                "level": "danger",
-                "message": "Средняя продолжительность сна ниже рекомендуемой нормы (7–9 часов для взрослых). Это может негативно сказываться на когнитивных функциях и иммунитете."
-            })
-        elif total_hours > 9:
-            recs.append({
-                "level": "warning",
-                "message": "Средняя продолжительность сна выше нормы. Регулярный избыточный сон может быть связан с повышенным риском сердечно-сосудистых заболеваний."
-            })
+        # 1. Продолжительность сна
+        min_h, max_h = norms["total_sleep_hours"]
+        if total_hours < min_h:
+            recs.append(
+                {
+                    "level": "danger",
+                    "message": f"Средняя продолжительность сна ({total_hours:.1f} ч) ниже нормы ({min_h:.0f}–{max_h:.0f} ч). Постарайтесь ложиться раньше или выделять больше времени на сон.",
+                }
+            )
+        elif total_hours > max_h:
+            recs.append(
+                {
+                    "level": "warning",
+                    "message": f"Средняя продолжительность сна ({total_hours:.1f} ч) выше верхней границы нормы ({max_h:.0f} ч). Регулярный избыточный сон может указывать на низкое качество сна или скрытые нарушения.",
+                }
+            )
         else:
-            recs.append({
-                "level": "success",
-                "message": "Средняя продолжительность сна в пределах здоровой нормы (7–9 часов). Так держать!"
-            })
+            recs.append(
+                {
+                    "level": "success",
+                    "message": f"Продолжительность сна ({total_hours:.1f} ч) в пределах нормы.",
+                }
+            )
 
-        # 2. Анализ глубокого сна (норма 20–25%)
-        deep_pct = (avg_deep / avg_total) * 100 if avg_total > 0 else 0
-        if deep_pct < 15:
-            recs.append({
-                "level": "danger",
-                "message": "Крайне низкая доля глубокого сна (менее 15%). Рекомендуется увеличить физическую активность в первой половине дня и полностью исключить алкоголь перед сном."
-            })
-        elif deep_pct < 20:
-            recs.append({
-                "level": "warning",
-                "message": "Доля глубокого сна немного ниже нормы (15-20%). Для её повышения старайтесь ложиться спать до 23:00 и поддерживайте прохладную температуру в спальне (18-20°C)."
-            })
-
-        # 3. Анализ REM-сна (норма 20–25%)
-        rem_pct = (avg_rem / avg_total) * 100 if avg_total > 0 else 0
-        if rem_pct < 15:
-            recs.append({
-                "level": "danger",
-                "message": "Крайне низкая доля REM-сна (менее 15%). Это может быть вызвано хроническим стрессом или употреблением алкоголя. Рекомендуются расслабляющие ритуалы перед сном и техники управления стрессом."
-            })
-        elif rem_pct < 20:
-            recs.append({
-                "level": "warning",
-                "message": "Доля REM-сна немного ниже нормы (15-20%). Попробуйте добавить вечерние ритуалы расслабления: чтение, тёплую ванну, медитацию или лёгкую растяжку."
-            })
-
-        # 4. Анализ эффективности сна
-        if efficiency < 75:
-            recs.append({
-                "level": "danger",
-                "message": "Эффективность сна крайне низкая (менее 75%). Рекомендуется применять метод ограничения сна (CBT-I): сократите время пребывания в постели до вашего среднего фактического времени сна, чтобы консолидировать сон."
-            })
-        elif efficiency < 85:
-            recs.append({
-                "level": "warning",
-                "message": "Эффективность сна ниже оптимальной (75–85%). Используйте метод стимул-контроля (CBT-I): если не можете уснуть в течение 20 минут, встаньте с постели и займитесь чем-то спокойным при тусклом свете."
-            })
+        # 2. Эффективность сна
+        eff_min, _ = norms["efficiency"]
+        if avg_eff < eff_min - 10:
+            recs.append(
+                {
+                    "level": "danger",
+                    "message": "Эффективность сна существенно ниже нормы. Рекомендуется техника ограничения времени в постели (CBT-I): сократите время нахождения в кровати до фактического среднего времени сна.",
+                }
+            )
+        elif avg_eff < eff_min:
+            recs.append(
+                {
+                    "level": "warning",
+                    "message": "Эффективность сна ниже оптимальной. Используйте метод стимул-контроля: вставайте с постели, если не можете уснуть в течение 20 минут.",
+                }
+            )
         else:
-            recs.append({
-                "level": "success",
-                "message": "Эффективность сна на хорошем уровне (выше 85%). Отличная работа!"
-            })
+            recs.append({"level": "success", "message": "Эффективность сна в норме."})
 
-        # 5. Анализ регулярности сна
+        # 3. Глубокий сон
+        deep_pct = (avg_deep / avg_total * 100) if avg_total > 0 else 0.0
+        deep_min, deep_max = norms["deep_sleep_pct"]
+        if deep_pct < deep_min:
+            recs.append(
+                {
+                    "level": "danger",
+                    "message": f"Доля глубокого сна ({deep_pct:.0f}%) значительно ниже возрастной нормы ({deep_min:.0f}–{deep_max:.0f}%). Рекомендуется: исключить алкоголь, обеспечить прохладу в спальне, увеличить дневную физическую активность.",
+                }
+            )
+        elif deep_pct < (deep_min + deep_max) / 2:
+            recs.append(
+                {
+                    "level": "warning",
+                    "message": f"Доля глубокого сна ({deep_pct:.0f}%) немного ниже оптимального значения. Попробуйте ложиться до 23:00 и не есть за 2–3 часа до сна.",
+                }
+            )
+        else:
+            recs.append(
+                {"level": "success", "message": "Глубокий сон в хорошем диапазоне."}
+            )
+
+        # 4. REM-сон
+        rem_pct = (avg_rem / avg_total * 100) if avg_total > 0 else 0.0
+        rem_min, rem_max = norms["rem_sleep_pct"]
+        if rem_pct < rem_min:
+            recs.append(
+                {
+                    "level": "danger",
+                    "message": f"Доля REM-сна ({rem_pct:.0f}%) ниже нормы ({rem_min:.0f}–{rem_max:.0f}%). Это часто связано со стрессом или употреблением алкоголя. Рекомендуются вечерние ритуалы расслабления.",
+                }
+            )
+        elif rem_pct < rem_max:
+            recs.append(
+                {
+                    "level": "warning",
+                    "message": "REM-сон чуть ниже верхней границы. Для улучшения попробуйте медитацию, дыхательные упражнения, избегайте яркого света вечером.",
+                }
+            )
+        else:
+            recs.append({"level": "success", "message": "REM-сон в норме."})
+
+        # 5. Регулярность
         if regularity > 60:
-            recs.append({
-                "level": "danger",
-                "message": "Очень высокая нерегулярность сна. Постарайтесь ложиться и вставать в одно и то же время даже в выходные дни. Это поможет стабилизировать ваши циркадные ритмы."
-            })
+            recs.append(
+                {
+                    "level": "danger",
+                    "message": "Очень нерегулярный сон по продолжительности. Старайтесь соблюдать одинаковое время подъёма и отхода ко сну даже в выходные.",
+                }
+            )
         elif regularity > 30:
-            recs.append({
-                "level": "warning",
-                "message": "Умеренная нерегулярность сна. Старайтесь, чтобы разница во времени сна в будние и выходные дни не превышала 1 часа."
-            })
+            recs.append(
+                {
+                    "level": "warning",
+                    "message": "Умеренная нерегулярность сна. Разница между буднями и выходными не должна превышать 1 часа.",
+                }
+            )
 
-        # 6. Анализ тренда
+        # 6. Физиология
+        if hrv is not None and hrv < 30:
+            recs.append(
+                {
+                    "level": "warning",
+                    "message": "Низкая вариабельность сердечного ритма (HRV) может указывать на переутомление. Рекомендуется день восстановления.",
+                }
+            )
+        if mov is not None and mov > 15:
+            recs.append(
+                {
+                    "level": "warning",
+                    "message": "Повышенная двигательная активность во сне. Проверьте удобство матраса и подушки, избегайте тяжёлой пищи на ночь.",
+                }
+            )
+
+        # 7. Субъективная оценка
+        if subj is not None:
+            if subj <= 2:
+                recs.append(
+                    {
+                        "level": "danger",
+                        "message": "Вы сами оцениваете качество сна как низкое. Обсудите это с врачом-сомнологом, особенно если объективные показатели в норме.",
+                    }
+                )
+            elif subj <= 3:
+                recs.append(
+                    {
+                        "level": "warning",
+                        "message": "Субъективно сон мог бы быть лучше. Попробуйте вести дневник сна для выявления негативных факторов.",
+                    }
+                )
+            else:
+                recs.append(
+                    {
+                        "level": "success",
+                        "message": "По вашим ощущениям, качество сна хорошее.",
+                    }
+                )
+
+        # 8. Возрастные и гендерные особенности
+        if age is not None:
+            if age >= 65:
+                recs.append(
+                    {
+                        "level": "info",
+                        "message": "В возрасте 65+ снижение доли глубокого сна и увеличение ночных пробуждений – естественный процесс. Продолжайте поддерживать регулярный режим и дневную активность.",
+                    }
+                )
+            elif age >= 45:
+                recs.append(
+                    {
+                        "level": "info",
+                        "message": "В среднем возрасте важно компенсировать естественное снижение глубокого сна физической нагрузкой и избеганием алкоголя.",
+                    }
+                )
+            if gender == "F" and age and 40 <= age <= 60:
+                recs.append(
+                    {
+                        "level": "info",
+                        "message": "В перименопаузе могут наблюдаться ночные пробуждения и ухудшение качества сна. Поддерживайте прохладу в спальне и обсудите с врачом возможные стратегии.",
+                    }
+                )
+
+        # 9. Тренд
         if trend == "ухудшается":
-            recs.append({
-                "level": "warning",
-                "message": "Наблюдается отрицательная динамика. Проанализируйте стресс-факторы, режим дня и питание. Возможно, вам будет полезна консультация сомнолога."
-            })
+            recs.append(
+                {
+                    "level": "warning",
+                    "message": "Наблюдается отрицательная динамика. Проанализируйте стресс-факторы и образ жизни за последние дни.",
+                }
+            )
         elif trend == "улучшается":
-            recs.append({
-                "level": "success",
-                "message": "Положительная динамика! Ваши показатели сна улучшаются. Продолжайте в том же духе."
-            })
+            recs.append(
+                {
+                    "level": "success",
+                    "message": "Положительная динамика! Ваш сон улучшается, продолжайте в том же духе.",
+                }
+            )
 
-        # Добавляем общие рекомендации по гигиене сна
-        recs.append({
-            "level": "info",
-            "message": "Общая рекомендация: поддерживайте в спальне темноту, тишину и прохладу (18-20°C). Избегайте использования гаджетов за 1-2 часа до сна, так как синий свет подавляет выработку мелатонина."
-        })
+        # Общий совет
+        recs.append(
+            {
+                "level": "info",
+                "message": "Гигиена сна: темнота, тишина, прохлада (18–20°C), отказ от гаджетов за час до сна, постоянный режим.",
+            }
+        )
 
         return recs

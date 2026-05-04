@@ -2,111 +2,188 @@
 {% block content %}
 <div class="row">
     <div class="col-12">
-        <h2 class="mb-4">Отчёт по анализу сна</h2>
+        <h2 class="mb-4" data-aos="fade-down">Отчёт по анализу сна</h2>
 
-        <!-- Карточки с KPI -->
+        {% if analysis.records|length <= 2 %}
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <strong>У вас меньше 3 записей.</strong> Для более точного анализа (тренды, графики изменений) загрузите данные за 3–7 дней.
+        </div>
+        {% endif %}
+
+        <!-- Sleep Score с анимацией -->
         <div class="row g-3 mb-4">
-            <div class="col-md-3 col-sm-6">
-                <div class="card text-white bg-primary shadow h-100">
-                    <div class="card-header"><i class="bi bi-hourglass-split"></i> Длительность</div>
-                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
-                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_total_sleep / 60) }} ч</h5>
-                        <span>в среднем за ночь</span>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 col-sm-6">
-                <div class="card text-white bg-success shadow h-100">
-                    <div class="card-header"><i class="bi bi-moon-stars-fill"></i> Глубокий сон</div>
-                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
-                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_deep_sleep / 60) }} ч</h5>
-                        <span>{{ "%.1f"|format(analysis.avg_deep_sleep / analysis.avg_total_sleep * 100) }}% от сна</span>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 col-sm-6">
-                <div class="card text-white bg-info shadow h-100">
-                    <div class="card-header"><i class="bi bi-lightning-charge-fill"></i> REM-сон</div>
-                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
-                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_rem_sleep / 60) }} ч</h5>
-                        <span>{{ "%.1f"|format(analysis.avg_rem_sleep / analysis.avg_total_sleep * 100) }}% от сна</span>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 col-sm-6">
-                <div class="card text-white bg-{% if analysis.avg_efficiency >= 85 %}success{% else %}warning{% endif %} shadow h-100">
-                    <div class="card-header"><i class="bi bi-bullseye"></i> Эффективность</div>
-                    <div class="card-body d-flex flex-column align-items-center justify-content-center">
-                        <h5 class="display-5 fw-bold">{{ "%.1f"|format(analysis.avg_efficiency) }}%</h5>
-                        <span>от времени в постели</span>
+            <div class="col-12">
+                <div class="card bg-light shadow" data-aos="zoom-in">
+                    <div class="card-body text-center">
+                        <h5 class="card-title text-muted">Оценка сна</h5>
+                        <div class="display-1 fw-bold text-primary" id="sleepScore" data-target="{{ analysis.sleep_score or 0 }}">0</div>
+                        <span class="text-secondary">из 100</span>
+                        <!-- Разбор по компонентам -->
+                        <div class="mt-3 row justify-content-center">
+                            {% set comps = analysis.score_components or {} %}
+                            {% for key, label, color in [('duration','Длительность','#0d6efd'), ('efficiency','Эффективность','#198754'), ('deep','Глубокий сон','#6f42c1'), ('rem','REM-сон','#d63384'), ('stability','Стабильность','#fd7e14')] %}
+                            {% if key in comps %}
+                            <div class="col-md-2 col-4 mb-2">
+                                <small class="text-muted">{{ label }}</small>
+                                <div class="progress" style="height: 8px;">
+                                    <div class="progress-bar" style="width: {{ (comps[key]['value'] / comps[key]['max'] * 100) | round }}%; background-color: {{ color }};"></div>
+                                </div>
+                                <small>{{ comps[key]['value'] }}/{{ comps[key]['max'] }}</small>
+                            </div>
+                            {% endif %}
+                            {% endfor %}
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Тренд и регулярность -->
+        <!-- Основные KPI со светофорами -->
         <div class="row g-3 mb-4">
-            <div class="col-md-6">
-                <div class="card shadow">
-                    <div class="card-body">
-                        <h6 class="text-muted">Тренд качества сна</h6>
-                        <h5><span class="badge bg-{% if analysis.trend == 'улучшается' %}success{% elif analysis.trend == 'ухудшается' %}danger{% else %}secondary{% endif %} fs-5">{{ analysis.trend }}</span></h5>
+            {% set status_icon = {'good': '🟢', 'warning': '🟡', 'danger': '🔴'} %}
+            {% set status_color = {'good': 'success', 'warning': 'warning', 'danger': 'danger'} %}
+
+            {% for id, icon, title, value, unit, status_key, url in [
+                ('total_sleep', 'bi-hourglass-split', 'Длительность', (analysis.avg_total_sleep/60)|round(1), 'ч', 'total_sleep', '/legend#total_sleep'),
+                ('deep_sleep', 'bi-moon-stars-fill', 'Глубокий сон', (analysis.avg_deep_sleep/60)|round(1), 'ч', 'deep_sleep', '/legend#deep_sleep'),
+                ('rem_sleep', 'bi-lightning-charge-fill', 'REM-сон', (analysis.avg_rem_sleep/60)|round(1), 'ч', 'rem_sleep', '/legend#rem_sleep'),
+                ('efficiency', 'bi-bullseye', 'Эффективность', analysis.avg_efficiency|round(1), '%', 'efficiency', '/legend#efficiency')
+            ] %}
+            <div class="col-md-3 col-sm-6" data-aos="fade-up" data-aos-delay="{{ loop.index * 100 }}">
+                {% set st = analysis.kpi_statuses.get(status_key, 'good') %}
+                <div class="card text-white bg-{{ status_color[st] }} shadow h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi {{ icon }}"></i> {{ title }}</span>
+                        <a rel="noopener noreferrer" target="_blank" href="{{ url }}" class="text-white" data-bs-toggle="tooltip" title="Что это?"><i class="bi bi-question-circle"></i></a>
+                    </div>
+                    <div class="card-body text-center">
+                        <div class="d-flex align-items-center justify-content-center">
+                            <span class="me-2 fs-4">{{ status_icon.get(st, '') }}</span>
+                            <h5 class="display-5 fw-bold mb-0">{{ value }}</h5>
+                        </div>
+                        <span>{{ unit }}</span>
                     </div>
                 </div>
             </div>
-            <div class="col-md-6">
-                <div class="card shadow">
-                    <div class="card-body">
-                        <h6 class="text-muted">Регулярность сна</h6>
-                        <h5><span class="badge bg-{% if analysis.sleep_regularity <= 30 %}success{% elif analysis.sleep_regularity <= 60 %}warning{% else %}danger{% endif %} fs-5">
-                            {% if analysis.sleep_regularity <= 30 %}Хорошая{% elif analysis.sleep_regularity <= 60 %}Средняя{% else %}Низкая{% endif %}
-                        </span></h5>
-                    </div>
-                </div>
-            </div>
+            {% endfor %}
         </div>
+
+        <!-- Дополнительные метрики -->
+        <div class="row g-3 mb-4" data-aos="fade-up">
+            {% for label, val, unit_str in [
+                ('Средняя латентность', analysis.avg_latency, 'мин'),
+                ('WASO (бодрствование)', analysis.avg_waso, 'мин'),
+                ('Фрагментация сна', analysis.avg_fragmentation, 'проб/ч')
+            ] %}
+            <div class="col-md-4">
+                <div class="card shadow text-center">
+                    <div class="card-body">
+                        <h6 class="text-muted">{{ label }}</h6>
+                        <h5>{{ ("%.0f"|format(val)) if val is not none else '—' }} {{ unit_str }}</h5>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Физиология -->
+        {% if analysis.avg_heart_rate or analysis.avg_hrv or analysis.avg_respiratory_rate or analysis.avg_movement %}
+        <div class="row g-3 mb-4" data-aos="fade-up">
+            <div class="col-12"><h5>Физиологические показатели</h5></div>
+            {% for label, val, unit_str in [
+                ('Пульс', analysis.avg_heart_rate, 'уд/мин'),
+                ('HRV', analysis.avg_hrv, 'мс'),
+                ('Дыхание', analysis.avg_respiratory_rate, 'вд/мин'),
+                ('Движения', analysis.avg_movement, 'движ/ч')
+            ] %}
+            {% if val is not none %}
+            <div class="col-md-3 col-sm-6">
+                <div class="card border-info shadow text-center">
+                    <div class="card-body">
+                        <h6 class="text-muted">{{ label }}</h6>
+                        <h5>{{ "%.1f"|format(val) }} {{ unit_str }}</h5>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
 
         <!-- Графики -->
-        <div class="card shadow mb-4">
-            <div class="card-body">
-                {{ duration_phase_html | safe }}
-            </div>
-        </div>
-        <div class="card shadow mb-4">
-            <div class="card-body">
-                {{ efficiency_html | safe }}
-            </div>
-        </div>
+        <div class="card shadow mb-4" data-aos="zoom-in"><div class="card-body">{{ duration_phase_html | safe }}</div></div>
+        <div class="card shadow mb-4" data-aos="zoom-in" data-aos-delay="100"><div class="card-body">{{ efficiency_html | safe }}</div></div>
+        {% if physio_plots %}
+            {% for name, html in physio_plots %}
+                <div class="card shadow mb-4" data-aos="zoom-in"><div class="card-body">{{ html | safe }}</div></div>
+            {% endfor %}
+        {% endif %}
 
-        <!-- Рекомендации в формате Accordion -->
-        <h4 class="mb-3">🎯 Рекомендации по улучшению сна</h4>
+        <!-- Рекомендации аккордеон -->
+        <h4 class="mb-3" data-aos="fade-right">🎯 Рекомендации</h4>
         {% set levels = {"danger": "Важно!", "warning": "Обратите внимание", "success": "Хороший показатель", "info": "Совет"} %}
         {% set colors = {"danger": "border-danger", "warning": "border-warning", "success": "border-success", "info": "border-info"} %}
         {% set btn_colors = {"danger": "btn-outline-danger", "warning": "btn-outline-warning", "success": "btn-outline-success", "info": "btn-outline-info"} %}
-
+        {% set icon = {"danger": "⚠️", "warning": "⚡", "success": "✅", "info": "💡"} %}
         {% for rec in analysis.recommendations %}
             {% set level = rec.level %}
-            {% set color = colors[level] %}
-            {% set btn_color = btn_colors[level] %}
-            {% set title = levels[level] %}
-            {% set icon = {"danger": "⚠️", "warning": "❗️", "success": "✅", "info": "💡"}[level] %}
-            <div class="accordion" id="recAccordion{{ loop.index }}">
-                <div class="accordion-item {{ color }}">
+            <div class="accordion" id="recAccordion{{ loop.index }}" data-aos="fade-left" data-aos-delay="{{ loop.index * 50 }}">
+                <div class="accordion-item {{ colors[level] }}">
                     <h2 class="accordion-header" id="heading{{ loop.index }}">
-                        <button class="accordion-button collapsed {{ btn_color }}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ loop.index }}" aria-expanded="false" aria-controls="collapse{{ loop.index }}">
-                            <span class="me-2">{{ icon }}</span> {{ title }}
+                        <button class="accordion-button collapsed {{ btn_colors[level] }}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ loop.index }}">
+                            <span class="me-2">{{ icon[level] }}</span> {{ levels[level] }}
                         </button>
                     </h2>
                     <div id="collapse{{ loop.index }}" class="accordion-collapse collapse" aria-labelledby="heading{{ loop.index }}" data-bs-parent="#recAccordion{{ loop.index }}">
-                        <div class="accordion-body">
-                            {{ rec.message }}
-                        </div>
+                        <div class="accordion-body">{{ rec.message }}</div>
                     </div>
                 </div>
             </div>
         {% endfor %}
 
-        <a href="/" class="btn btn-primary mt-4">⬅️ Загрузить другой файл</a>
+        <div class="d-flex justify-content-between mt-4">
+            <a href="/" class="btn btn-primary">⬅️ Загрузить другой файл</a>
+            <a href="/download_report" class="btn btn-outline-primary" onclick="showDownloadToast()">
+                <i class="bi bi-download"></i> Скачать отчёт (DOCX)
+            </a>
+        </div>
     </div>
 </div>
+
+<script>
+    // Анимация счётчика Sleep Score
+    document.addEventListener('DOMContentLoaded', function() {
+        const scoreEl = document.getElementById('sleepScore');
+        if (scoreEl) {
+            const target = +scoreEl.getAttribute('data-target');
+            const duration = 1500;
+            const startTime = performance.now();
+            function animate(now) {
+                const elapsed = now - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const current = Math.floor(progress * target);
+                scoreEl.textContent = current;
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+    });
+
+    // Активация тултипов
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+    var tooltipList = tooltipTriggerList.map(function (el) {
+        return new bootstrap.Tooltip(el)
+    })
+
+    // Простой тост при скачивании
+    function showDownloadToast() {
+        const toastEl = document.getElementById('downloadToast');
+        const toast = new bootstrap.Toast(toastEl, { delay: 2500 });
+        document.getElementById('toast-message').textContent = 'Собираем отчёт...';
+        toast.show();
+    }
+</script>
 {% endblock %}
