@@ -20,6 +20,12 @@
                     <i class="bi bi-keyboard"></i> Ввести вручную
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="calculator-tab" data-bs-toggle="tab" data-bs-target="#calculator-panel"
+                        type="button" role="tab">
+                    <i class="bi bi-calculator"></i> Калькулятор сна
+                </button>
+            </li>
         </ul>
 
         <div class="tab-content" id="uploadTabContent">
@@ -124,6 +130,7 @@
                                             </button>
                                             <button type="button" class="btn btn-sm btn-outline-danger remove-day">Удалить день</button>
                                         </div>
+                                        <!-- Скрываемый блок с дополнительными метриками дня -->
                                         <div class="day-extended mt-3" style="display: none;">
                                             <div class="row g-3">
                                                 <div class="col-md-3">
@@ -167,6 +174,31 @@
                     </div>
                 </div>
             </div>
+
+            <!-- КАЛЬКУЛЯТОР СНА -->
+            <div class="tab-pane fade" id="calculator-panel" role="tabpanel">
+                <div class="card shadow border-0 rounded-4">
+                    <div class="card-body p-4">
+                        <h5 class="card-title mb-4"><i class="bi bi-calculator"></i> Рассчитайте оптимальное время для пробуждения или засыпания</h5>
+                        <p class="text-muted">Сон состоит из циклов примерно по 90 минут. Чтобы проснуться бодрым, старайтесь вставать на границе циклов.</p>
+                        <div class="row g-4">
+                            <div class="col-md-6">
+                                <h6>Я хочу проснуться в:</h6>
+                                <input type="time" id="wakeup-time" class="form-control mb-2" value="07:00">
+                                <button class="btn btn-primary" onclick="calcBedtimes()">Рассчитать время засыпания</button>
+                                <div class="mt-3" id="bedtime-results"></div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Я лягу спать в:</h6>
+                                <input type="time" id="sleep-time" class="form-control mb-2" value="23:00">
+                                <button class="btn btn-primary" onclick="calcWaketimes()">Рассчитать время пробуждения</button>
+                                <div class="mt-3" id="waketime-results"></div>
+                            </div>
+                        </div>
+                        <p class="mt-3 text-muted small">Учитывается 15 минут на засыпание и 90-минутные циклы (4–6 циклов).</p>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="text-center mt-4">
@@ -196,35 +228,77 @@
         modal.show();
     }
 
+    // ---- Калькулятор сна ----
+    function calcBedtimes() {
+        const wake = document.getElementById('wakeup-time').value;
+        if (!wake) return;
+        const [h, m] = wake.split(':').map(Number);
+        const wakeDate = new Date(2020, 0, 1, h, m);
+        const cycles = [6, 5, 4, 3]; // 9h, 7.5h, 6h, 4.5h
+        let html = '<ul class="list-group">';
+        cycles.forEach(c => {
+            const totalMin = c * 90 + 15;
+            const bedDate = new Date(wakeDate.getTime() - totalMin * 60000);
+            const time = `${String(bedDate.getHours()).padStart(2,'0')}:${String(bedDate.getMinutes()).padStart(2,'0')}`;
+            html += `<li class="list-group-item">${c} циклов (${c*1.5} ч) — лечь в <strong>${time}</strong></li>`;
+        });
+        html += '</ul>';
+        document.getElementById('bedtime-results').innerHTML = html;
+    }
+
+    function calcWaketimes() {
+        const sleep = document.getElementById('sleep-time').value;
+        if (!sleep) return;
+        const [h, m] = sleep.split(':').map(Number);
+        const sleepDate = new Date(2020, 0, 1, h, m);
+        const cycles = [3, 4, 5, 6];
+        let html = '<ul class="list-group">';
+        cycles.forEach(c => {
+            const totalMin = c * 90 + 15;
+            const wakeDate = new Date(sleepDate.getTime() + totalMin * 60000);
+            const time = `${String(wakeDate.getHours()).padStart(2,'0')}:${String(wakeDate.getMinutes()).padStart(2,'0')}`;
+            html += `<li class="list-group-item">${c} циклов (${c*1.5} ч) — встать в <strong>${time}</strong></li>`;
+        });
+        html += '</ul>';
+        document.getElementById('waketime-results').innerHTML = html;
+    }
+
+    // ---- Динамическое добавление дней ----
     document.addEventListener('DOMContentLoaded', function() {
         const container = document.getElementById('days-container');
         const template = document.getElementById('day-template');
 
         function addDay() {
+            if (!container || !template) return;
             const clone = template.content.cloneNode(true);
             container.appendChild(clone);
         }
 
-        // Первый день
-        addDay();
+        // Начальный день
+        if (container) addDay();
 
-        document.getElementById('add-day').addEventListener('click', addDay);
+        const addBtn = document.getElementById('add-day');
+        if (addBtn) {
+            addBtn.addEventListener('click', addDay);
+        }
 
-        container.addEventListener('click', function(e) {
-            if (e.target.classList.contains('remove-day')) {
-                e.target.closest('.day-row').remove();
-                if (container.querySelectorAll('.day-row').length === 0) {
-                    addDay();
+        if (container) {
+            container.addEventListener('click', function(e) {
+                if (e.target.classList.contains('remove-day')) {
+                    e.target.closest('.day-row').remove();
+                    if (container.querySelectorAll('.day-row').length === 0) {
+                        addDay();
+                    }
                 }
-            }
-            if (e.target.classList.contains('toggle-extended')) {
-                const dayRow = e.target.closest('.day-row');
-                const extended = dayRow.querySelector('.day-extended');
-                if (extended) {
-                    extended.style.display = (extended.style.display === 'none') ? 'block' : 'none';
+                if (e.target.classList.contains('toggle-extended')) {
+                    const dayRow = e.target.closest('.day-row');
+                    const extended = dayRow.querySelector('.day-extended');
+                    if (extended) {
+                        extended.style.display = (extended.style.display === 'none') ? 'block' : 'none';
+                    }
                 }
-            }
-        });
+            });
+        }
     });
 </script>
 {% endblock %}

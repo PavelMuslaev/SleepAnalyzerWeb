@@ -48,24 +48,19 @@ class SleepAnalysisService:
 
         # Корректировка по возрасту (источники: NSF, AASM, метаанализы 2020-2024)
         if age_group == "teen":
-            # Подростки 13-17 лет: сна нужно 8-10 ч, глуб.сон ~20-25%
             norms["total_sleep_hours"] = (8.0, 10.0)
             norms["deep_sleep_pct"] = (20.0, 30.0)
             norms["rem_sleep_pct"] = (20.0, 25.0)
         elif age_group == "young_adult":
-            # 18-29 лет: базовые нормы, глубокий сон в норме 15-25%
             pass
         elif age_group == "adult":
-            # 30-44 года: начинает снижаться доля глубокого сна
             norms["deep_sleep_pct"] = (10.0, 20.0)
             norms["waso_min"] = (0.0, 40.0)
         elif age_group == "middle_age":
-            # 45-64 года: дальнейшее снижение глубокого сна, эффективность немного ниже
             norms["deep_sleep_pct"] = (7.0, 20.0)
             norms["efficiency"] = (80.0, 100.0)
             norms["waso_min"] = (0.0, 45.0)
         elif age_group == "older_adult":
-            # 65+ лет: рекомендовано 7-8 ч, глубокий сон существенно меньше, допустима более низкая эффективность
             norms["total_sleep_hours"] = (6.0, 8.0)
             norms["deep_sleep_pct"] = (5.0, 15.0)
             norms["efficiency"] = (75.0, 100.0)
@@ -73,12 +68,9 @@ class SleepAnalysisService:
 
         # Небольшие поправки по полу
         if gender == "F":
-            # Женщины в среднем имеют немного больше глубокого сна, но также чаще жалуются на бессонницу
-            # Слегка повышаем верхнюю границу нормы глубокого сна
             deep_min, deep_max = norms["deep_sleep_pct"]
             norms["deep_sleep_pct"] = (deep_min + 2, min(deep_max + 5, 35.0))
         elif gender == "M":
-            # Мужчины: без значительных корректировок, оставляем как есть
             pass
 
         return norms
@@ -110,7 +102,6 @@ class SleepAnalysisService:
         ]
         avg_latency = float(np.mean(latencies)) if latencies else None
 
-        # WASO: если известна латентность, вычитаем её из разницы время в постели - общий сон
         waso_vals = []
         for r in sorted_records:
             if r.sleep_latency_minutes is not None:
@@ -120,7 +111,6 @@ class SleepAnalysisService:
                     - r.sleep_latency_minutes
                 )
             else:
-                # Грубая оценка без латентности
                 waso_vals.append(r.time_in_bed_minutes - r.total_sleep_minutes)
         avg_waso = float(np.mean(waso_vals)) if waso_vals else None
 
@@ -131,12 +121,9 @@ class SleepAnalysisService:
         durations = [r.total_sleep_minutes for r in sorted_records]
         sleep_regularity = float(np.std(durations)) if len(durations) >= 2 else 0.0
 
-        # Консистентность времени отхода ко сну (разброс в минутах относительно полуночи)
         def bedtime_minutes_from_midnight(r: SleepRecord) -> float:
             minutes = r.sleep_start.hour * 60 + r.sleep_start.minute
-            if (
-                minutes > 12 * 60
-            ):  # до полудня считаем "после полуночи", сдвигаем чтобы избежать разрыва
+            if minutes > 12 * 60:
                 minutes -= 24 * 60
             return minutes
 
@@ -174,21 +161,20 @@ class SleepAnalysisService:
         for r in sorted_records:
             if r.age is not None:
                 user_age = r.age
-                user_gender = r.gender  # пол берём оттуда же
+                user_gender = r.gender
                 break
-        # Если пол не задан, но возраст есть, gender может быть None
         if user_age is not None and user_gender is None:
-            user_gender = None  # оставляем
+            user_gender = None
 
-        # Получаем персональные нормы (если возраст есть)
+        # Получаем персональные нормы
         norms = (
             self._get_sleep_norms(user_age, user_gender)
             if user_age is not None
             else self._get_sleep_norms(None, None)
         )
 
-        # 6. Интегральный sleep_score с учётом норм
-        sleep_score = self._compute_sleep_score(
+        # 6. Sleep Score и компоненты
+        score, components = self._compute_sleep_score(
             avg_total,
             avg_efficiency,
             avg_deep,
@@ -200,14 +186,14 @@ class SleepAnalysisService:
             norms,
         )
 
-        # 7. Sleep debt (целевое значение из норм)
+        # 7. Долг сна
         target_hours = (
             norms["total_sleep_hours"][0] + norms["total_sleep_hours"][1]
         ) / 2.0
         target_minutes = target_hours * 60
         sleep_debt = max(0.0, target_minutes - avg_total)
 
-        # 8. Тренд эффективности за последние 7 дней
+        # 8. Тренд эффективности
         efficiencies = [r.sleep_efficiency for r in sorted_records[-7:]]
         if len(efficiencies) >= 2:
             x = np.arange(len(efficiencies))
@@ -221,7 +207,44 @@ class SleepAnalysisService:
         else:
             trend = "недостаточно данных"
 
-        # 9. Рекомендации с учётом профиля
+        # 9. Статусы для светофоров
+        kpi_statuses = {}
+        total_hours = avg_total / 60.0
+        min_h, max_h = norms["total_sleep_hours"]
+        if min_h <= total_hours <= max_h:
+            kpi_statuses["total_sleep"] = "good"
+        elif total_hours < min_h - 1 or total_hours > max_h + 1:
+            kpi_statuses["total_sleep"] = "danger"
+        else:
+            kpi_statuses["total_sleep"] = "warning"
+
+        eff_min, _ = norms["efficiency"]
+        if avg_efficiency >= eff_min:
+            kpi_statuses["efficiency"] = "good"
+        elif avg_efficiency >= eff_min - 10:
+            kpi_statuses["efficiency"] = "warning"
+        else:
+            kpi_statuses["efficiency"] = "danger"
+
+        deep_pct = (avg_deep / avg_total * 100) if avg_total > 0 else 0.0
+        deep_min, deep_max = norms["deep_sleep_pct"]
+        if deep_pct >= deep_max:
+            kpi_statuses["deep_sleep"] = "good"
+        elif deep_pct >= deep_min:
+            kpi_statuses["deep_sleep"] = "warning"
+        else:
+            kpi_statuses["deep_sleep"] = "danger"
+
+        rem_pct = (avg_rem / avg_total * 100) if avg_total > 0 else 0.0
+        rem_min, rem_max = norms["rem_sleep_pct"]
+        if rem_pct >= rem_max:
+            kpi_statuses["rem_sleep"] = "good"
+        elif rem_pct >= rem_min:
+            kpi_statuses["rem_sleep"] = "warning"
+        else:
+            kpi_statuses["rem_sleep"] = "danger"
+
+        # 10. Рекомендации с учётом профиля
         recommendations = self._generate_recommendations(
             avg_total,
             avg_efficiency,
@@ -258,12 +281,14 @@ class SleepAnalysisService:
             avg_respiratory_rate=avg_resp,
             avg_movement=avg_mov,
             avg_subjective_rating=avg_subj,
-            sleep_score=sleep_score,
+            sleep_score=score,
             sleep_debt_minutes=sleep_debt,
             trend=trend,
             recommendations=recommendations,
             user_age=user_age,
             user_gender=user_gender,
+            kpi_statuses=kpi_statuses,
+            score_components=components,
         )
 
     # ------------------------------------------------------------------
@@ -280,97 +305,83 @@ class SleepAnalysisService:
         waso: Optional[float],
         bedtime_std: float,
         norms: Dict[str, Tuple[float, float]],
-    ) -> int:
-        score = 0.0
-
-        # 1. Длительность (20 баллов)
+    ) -> Tuple[int, Dict]:
+        components = {
+            "duration": {"value": 0, "max": 20},
+            "efficiency": {"value": 0, "max": 20},
+            "deep": {"value": 0, "max": 15},
+            "rem": {"value": 0, "max": 15},
+            "stability": {"value": 0, "max": 20},
+        }
         total_hours = total_min / 60.0
         min_h, max_h = norms["total_sleep_hours"]
         if min_h <= total_hours <= max_h:
-            dur_score = 20.0
+            dur_score = 20
         else:
             deviation = min(abs(total_hours - min_h), abs(total_hours - max_h))
-            dur_score = max(
-                0.0, 20.0 - deviation * 5
-            )  # минус 5 баллов за каждый час отклонения
-        score += dur_score
+            dur_score = max(0, 20 - deviation * 5)
+        components["duration"]["value"] = round(dur_score, 1)
 
-        # 2. Эффективность (20 баллов)
         eff_min, _ = norms["efficiency"]
-        if efficiency >= eff_min:
-            eff_score = 20.0
-        else:
-            eff_score = max(0.0, efficiency / eff_min * 20.0)
-        score += eff_score
+        eff_score = min(20, (efficiency / eff_min * 20)) if efficiency < eff_min else 20
+        components["efficiency"]["value"] = round(eff_score, 1)
 
-        # 3. Глубокий сон (15 баллов)
         deep_pct = (deep_min / total_min * 100) if total_min > 0 else 0.0
-        deep_min_pct, deep_max_pct = norms["deep_sleep_pct"]
-        if deep_pct >= deep_max_pct:
-            deep_score = 15.0
-        elif deep_pct <= deep_min_pct:
-            deep_score = max(
-                0.0, deep_pct / deep_min_pct * 10.0
-            )  # ниже нижней границы – меньше баллов
+        dmin, dmax = norms["deep_sleep_pct"]
+        if deep_pct >= dmax:
+            deep_score = 15
+        elif deep_pct <= dmin:
+            deep_score = max(0, deep_pct / dmin * 10)
         else:
-            # линейно между min и max
-            deep_score = 10.0 + 5.0 * (deep_pct - deep_min_pct) / (
-                deep_max_pct - deep_min_pct
-            )
-        score += deep_score
+            deep_score = 10 + 5 * (deep_pct - dmin) / (dmax - dmin)
+        components["deep"]["value"] = round(deep_score, 1)
 
-        # 4. REM-сон (15 баллов)
         rem_pct = (rem_min / total_min * 100) if total_min > 0 else 0.0
-        rem_min_pct, rem_max_pct = norms["rem_sleep_pct"]
-        if rem_pct >= rem_max_pct:
-            rem_score = 15.0
-        elif rem_pct <= rem_min_pct:
-            rem_score = max(0.0, rem_pct / rem_min_pct * 10.0)
+        rmin, rmax = norms["rem_sleep_pct"]
+        if rem_pct >= rmax:
+            rem_score = 15
+        elif rem_pct <= rmin:
+            rem_score = max(0, rem_pct / rmin * 10)
         else:
-            rem_score = 10.0 + 5.0 * (rem_pct - rem_min_pct) / (
-                rem_max_pct - rem_min_pct
-            )
-        score += rem_score
+            rem_score = 10 + 5 * (rem_pct - rmin) / (rmax - rmin)
+        components["rem"]["value"] = round(rem_score, 1)
 
-        # 5. Стабильность и непрерывность (20 баллов: 10 за фрагментацию + 10 за регулярность времени)
+        # Стабильность
         frag_min, frag_max = norms.get("fragmentation", (0.0, 1.5))
         if fragmentation is not None:
             if fragmentation <= frag_min:
-                frag_score = 10.0
+                frag_score = 10
             elif fragmentation >= frag_max:
-                frag_score = 0.0
+                frag_score = 0
             else:
                 frag_score = (
-                    10.0 - (fragmentation - frag_min) / (frag_max - frag_min) * 10.0
+                    10 - (fragmentation - frag_min) / (frag_max - frag_min) * 10
                 )
         else:
-            frag_score = 10.0  # нет данных – не штрафуем
-        score += frag_score
-
-        # Консистентность времени отхода ко сну (10 баллов)
+            frag_score = 10
         if bedtime_std <= 15:
-            bedtime_score = 10.0
+            bedtime_score = 10
         elif bedtime_std <= 30:
-            bedtime_score = 8.0
+            bedtime_score = 8
         elif bedtime_std <= 60:
-            bedtime_score = 5.0
+            bedtime_score = 5
         else:
-            bedtime_score = max(0.0, 5.0 - (bedtime_std - 60) / 10)
-        score += bedtime_score
+            bedtime_score = max(0, 5 - (bedtime_std - 60) / 10)
+        stability = frag_score + bedtime_score
+        components["stability"]["value"] = round(stability, 1)
 
-        # 6. Штрафы за латентность и WASO (до -10 баллов)
-        penalty = 0.0
+        total_score = dur_score + eff_score + deep_score + rem_score + stability
+        # Штрафы
         lat_min, lat_max = norms["latency_min"]
-        if latency is not None:
-            if latency > lat_max:
-                penalty += min(5.0, (latency - lat_max) / 10)
+        penalty = 0
+        if latency is not None and latency > lat_max:
+            penalty += min(5, (latency - lat_max) / 10)
         waso_min, waso_max = norms["waso_min"]
-        if waso is not None:
-            if waso > waso_max:
-                penalty += min(5.0, (waso - waso_max) / 10)
-        score -= penalty
-
-        return max(0, min(100, int(round(score))))
+        if waso is not None and waso > waso_max:
+            penalty += min(5, (waso - waso_max) / 10)
+        total_score -= penalty
+        total_score = max(0, min(100, int(round(total_score))))
+        return total_score, components
 
     # ------------------------------------------------------------------
     # Генерация рекомендаций с учётом профиля и норм

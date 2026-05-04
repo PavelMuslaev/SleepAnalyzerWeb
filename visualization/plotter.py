@@ -9,7 +9,7 @@ class SleepPlotter:
     @staticmethod
     def create_duration_phase_figure(
         records: List[SleepRecord],
-        norms: Optional[Dict[str, Tuple[float, float]]] = None
+        norms: Optional[Dict[str, Tuple[float, float]]] = None,
     ) -> go.Figure:
         sorted_records = sorted(records, key=lambda r: r.date)
         dates = [r.date.isoformat() for r in sorted_records]
@@ -19,14 +19,64 @@ class SleepPlotter:
         rem = [r.rem_minutes / 60.0 for r in sorted_records]
 
         fig = make_subplots(
-            rows=2, cols=1, shared_xaxes=True,
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
             subplot_titles=("Общая продолжительность сна", "Фазы сна"),
-            vertical_spacing=0.15
+            vertical_spacing=0.15,
         )
-        fig.add_trace(go.Scatter(x=dates, y=total, mode='lines+markers', name='Всего часов'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=dates, y=deep, mode='lines+markers', name='Глубокий'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=dates, y=light, mode='lines+markers', name='Лёгкий'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=dates, y=rem, mode='lines+markers', name='REM'), row=2, col=1)
+
+        # График общей длительности с заливкой
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=total,
+                mode="lines+markers",
+                name="Всего часов",
+                fill="tozeroy",
+                fillcolor="rgba(66, 133, 244, 0.15)",
+            ),
+            row=1,
+            col=1,
+        )
+
+        # Фазы с градиентной заливкой
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=deep,
+                mode="lines+markers",
+                name="Глубокий",
+                fill="tozeroy",
+                fillcolor="rgba(15, 157, 88, 0.15)",
+            ),
+            row=2,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=light,
+                mode="lines+markers",
+                name="Лёгкий",
+                fill="tozeroy",
+                fillcolor="rgba(255, 193, 7, 0.15)",
+            ),
+            row=2,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=rem,
+                mode="lines+markers",
+                name="REM",
+                fill="tozeroy",
+                fillcolor="rgba(203, 68, 75, 0.15)",
+            ),
+            row=2,
+            col=1,
+        )
 
         if norms and total:
             avg_total_hours = sum(total) / len(total)
@@ -36,88 +86,113 @@ class SleepPlotter:
             deep_max_h = avg_total_hours * deep_max_pct / 100.0
             rem_min_h = avg_total_hours * rem_min_pct / 100.0
             rem_max_h = avg_total_hours * rem_max_pct / 100.0
+            for y_val, txt in [
+                (deep_min_h, f"мин. глубокого ({deep_min_pct:.0f}%)"),
+                (deep_max_h, f"макс. глубокого ({deep_max_pct:.0f}%)"),
+            ]:
+                fig.add_hline(
+                    y=y_val,
+                    line_dash="dot",
+                    line_color="gray",
+                    annotation_text=txt,
+                    annotation_position="bottom right",
+                    row=2,
+                    col=1,
+                )
+            for y_val, txt in [
+                (rem_min_h, f"мин. REM ({rem_min_pct:.0f}%)"),
+                (rem_max_h, f"макс. REM ({rem_max_pct:.0f}%)"),
+            ]:
+                fig.add_hline(
+                    y=y_val,
+                    line_dash="dot",
+                    line_color="gray",
+                    annotation_text=txt,
+                    annotation_position="bottom right",
+                    row=2,
+                    col=1,
+                )
 
-            fig.add_hline(y=deep_min_h, line_dash="dot", line_color="gray",
-                          annotation_text=f"мин. глубокого ({deep_min_pct:.0f}%)",
-                          annotation_position="bottom right", row=2, col=1)
-            fig.add_hline(y=deep_max_h, line_dash="dot", line_color="gray",
-                          annotation_text=f"макс. глубокого ({deep_max_pct:.0f}%)",
-                          annotation_position="top right", row=2, col=1)
-            fig.add_hline(y=rem_min_h, line_dash="dot", line_color="gray",
-                          annotation_text=f"мин. REM ({rem_min_pct:.0f}%)",
-                          annotation_position="bottom right", row=2, col=1)
-            fig.add_hline(y=rem_max_h, line_dash="dot", line_color="gray",
-                          annotation_text=f"макс. REM ({rem_max_pct:.0f}%)",
-                          annotation_position="top right", row=2, col=1)
-
-        fig.update_layout(title='Анализ сна', height=600, hovermode='x unified')
-        fig.update_yaxes(title_text='Часы', row=1, col=1)
-        fig.update_yaxes(title_text='Часы', row=2, col=1)
+        fig.update_layout(title="Анализ сна", height=600, hovermode="x unified")
+        fig.update_yaxes(title_text="Часы", row=1, col=1)
+        fig.update_yaxes(title_text="Часы", row=2, col=1)
         return fig
 
     @staticmethod
     def create_efficiency_figure(
         records: List[SleepRecord],
-        norms: Optional[Dict[str, Tuple[float, float]]] = None
+        norms: Optional[Dict[str, Tuple[float, float]]] = None,
     ) -> go.Figure:
         sorted_records = sorted(records, key=lambda r: r.date)
         dates = [r.date.isoformat() for r in sorted_records]
         eff = [r.sleep_efficiency for r in sorted_records]
-
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=dates, y=eff, mode='lines+markers', name='Эффективность (%)'))
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=eff,
+                mode="lines+markers",
+                name="Эффективность (%)",
+                fill="tozeroy",
+                fillcolor="rgba(66, 133, 244, 0.1)",
+            )
+        )
         if norms:
             eff_min, _ = norms.get("efficiency", (85.0, 100.0))
-            fig.add_hrect(y0=eff_min, y1=100, fillcolor="green", opacity=0.1, line_width=0,
-                          annotation_text=f"Норма ≥{eff_min:.0f}%", annotation_position="top left")
-            fig.add_hline(y=eff_min, line_dash="dash", line_color="green",
-                          annotation_text=f"Нижняя граница ({eff_min:.0f}%)",
-                          annotation_position="bottom right")
-        fig.update_layout(title='Эффективность сна', yaxis_title='%', height=300)
+            fig.add_hrect(
+                y0=eff_min,
+                y1=100,
+                fillcolor="green",
+                opacity=0.1,
+                line_width=0,
+                annotation_text=f"Норма ≥{eff_min:.0f}%",
+                annotation_position="top left",
+            )
+            fig.add_hline(
+                y=eff_min,
+                line_dash="dash",
+                line_color="green",
+                annotation_text=f"Нижняя граница ({eff_min:.0f}%)",
+            )
+        fig.update_layout(title="Эффективность сна", yaxis_title="%", height=300)
         return fig
 
     @staticmethod
-    def create_physio_figures(records: List[SleepRecord]) -> List[Tuple[str, go.Figure]]:
-        """Возвращает список (название, Figure) для доступных физиологических данных."""
+    def create_physio_figures(
+        records: List[SleepRecord],
+    ) -> List[Tuple[str, go.Figure]]:
         sorted_records = sorted(records, key=lambda r: r.date)
         dates = [r.date.isoformat() for r in sorted_records]
         figs = []
-
-        hr_vals = [r.heart_rate_avg for r in sorted_records if r.heart_rate_avg is not None]
-        if hr_vals:
-            hr_dates = dates[-len(hr_vals):]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=hr_dates, y=hr_vals, mode='lines+markers', name='Пульс'))
-            fig.update_layout(title='Средний пульс во сне', yaxis_title='уд/мин', height=300)
-            figs.append(('heart_rate', fig))
-
-        hrv_vals = [r.hr_variability_avg for r in sorted_records if r.hr_variability_avg is not None]
-        if hrv_vals:
-            hrv_dates = dates[-len(hrv_vals):]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=hrv_dates, y=hrv_vals, mode='lines+markers', name='HRV'))
-            fig.update_layout(title='Вариабельность сердечного ритма', yaxis_title='мс', height=300)
-            figs.append(('hrv', fig))
-
-        resp_vals = [r.respiratory_rate_avg for r in sorted_records if r.respiratory_rate_avg is not None]
-        if resp_vals:
-            resp_dates = dates[-len(resp_vals):]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=resp_dates, y=resp_vals, mode='lines+markers', name='Дыхание'))
-            fig.update_layout(title='Частота дыхания', yaxis_title='вдох/мин', height=300)
-            figs.append(('resp', fig))
-
-        mov_vals = [r.movement_index for r in sorted_records if r.movement_index is not None]
-        if mov_vals:
-            mov_dates = dates[-len(mov_vals):]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=mov_dates, y=mov_vals, mode='lines+markers', name='Движения'))
-            fig.update_layout(title='Двигательная активность', yaxis_title='движ/ч', height=300)
-            figs.append(('movement', fig))
-
+        for metric, name, color in [
+            ("heart_rate_avg", "Пульс (уд/мин)", "rgba(220, 53, 69, 0.2)"),
+            ("hr_variability_avg", "HRV (мс)", "rgba(25, 135, 84, 0.2)"),
+            ("respiratory_rate_avg", "Дыхание (вд/мин)", "rgba(13, 202, 240, 0.2)"),
+            ("movement_index", "Движения (в час)", "rgba(255, 193, 7, 0.2)"),
+        ]:
+            vals = [
+                getattr(r, metric)
+                for r in sorted_records
+                if getattr(r, metric) is not None
+            ]
+            if vals:
+                fig = go.Figure()
+                fig.add_trace(
+                    go.Scatter(
+                        x=dates[-len(vals) :],
+                        y=vals,
+                        mode="lines+markers",
+                        fill="tozeroy",
+                        fillcolor=color,
+                    )
+                )
+                fig.update_layout(
+                    title=name, yaxis_title=name.split("(")[-1].rstrip(")"), height=300
+                )
+                figs.append((metric, fig))
         return figs
 
-    # Удобные обёртки для HTML
+    # HTML-обёртки (как раньше)
     @staticmethod
     def create_duration_phase_plot(records, norms=None) -> str:
         fig = SleepPlotter.create_duration_phase_figure(records, norms)
